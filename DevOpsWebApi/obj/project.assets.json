@@ -88,11 +88,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Cirno\\Downloads\\Estudos\\Faculdade\\Projetos\\WebAPI\\DevOpsWebApi\\DevOpsWebApi.csproj",
+      "projectUniqueName": "C:\\Users\\Cirno\\Laboratorio-Docker\\DevOpsWebApi\\DevOpsWebApi.csproj",
       "projectName": "DevOpsWebApi",
-      "projectPath": "C:\\Users\\Cirno\\Downloads\\Estudos\\Faculdade\\Projetos\\WebAPI\\DevOpsWebApi\\DevOpsWebApi.csproj",
+      "projectPath": "C:\\Users\\Cirno\\Laboratorio-Docker\\DevOpsWebApi\\DevOpsWebApi.csproj",
       "packagesPath": "C:\\Users\\Cirno\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Cirno\\Downloads\\Estudos\\Faculdade\\Projetos\\WebAPI\\DevOpsWebApi\\obj\\",
+      "outputPath": "C:\\Users\\Cirno\\Laboratorio-Docker\\DevOpsWebApi\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Cirno\\AppData\\Roaming\\NuGet\\NuGet.Config"

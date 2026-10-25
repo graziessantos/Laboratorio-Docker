@@ -9,10 +9,11 @@ services:
       APP_ENVIRONMENT: staging
       APP_VERSION: "1.1.0"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "dotnet", "DevOpsWebApi.dll", "--healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 15s
 
   production:
     image: devops-webapi:1.1.0
@@ -23,9 +24,8 @@ services:
       APP_ENVIRONMENT: production
       APP_VERSION: "1.1.0"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "dotnet", "DevOpsWebApi.dll", "--healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 3
-
-      
+      start_period: 15s
