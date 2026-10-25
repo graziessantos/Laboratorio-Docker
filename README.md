@@ -101,6 +101,7 @@ curl.exe -f http://localhost:8082/health
 - O `-f` faz o curl **falhar** (código de saída diferente de zero) quando a resposta HTTP é de erro, o que o torna um *quality gate*: se falhar, a release **não deve ser promovida**.
 - Resultado esperado: `{"status":"healthy","version":"...","environment":"..."}`.
 - No Linux/macOS, use `curl` no lugar de `curl.exe`.
+- Esses comandos rodam na **máquina host**. O healthcheck que roda dentro do container é configurado no Docker Compose (veja a última seção).
 
 ---
 
@@ -157,7 +158,7 @@ Depois, `curl.exe -f http://localhost:8082/health` volta a responder `healthy`. 
 
 ## 🧩 Docker Compose
 
-Declara staging e production em um arquivo `compose.yaml`, no lugar de vários `docker run`. Ambos os serviços usam a imagem `devops-webapi:1.1.0` e têm um `healthcheck` que chama `/health`.
+Declara staging e production em um arquivo `compose.yaml`, no lugar de vários `docker run`. Ambos os serviços usam a imagem `devops-webapi:1.1.0` e têm um `healthcheck`.
 
 ```bash
 docker compose up -d     # sobe os ambientes em segundo plano
@@ -165,12 +166,93 @@ docker compose ps        # lista os serviços e o estado de saúde
 docker compose down      # encerra e remove containers e rede
 ```
 
-**Atenção ao healthcheck:** ele usa o `curl`, que **não vem** na imagem base `aspnet`. Por isso o `Dockerfile` instala o curl no estágio `runtime`:
+### Desafio: healthcheck no Compose
 
-```dockerfile
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+O exemplo do enunciado usa o `curl` dentro do container, mas a imagem base `aspnet` **não possui o curl**. Sem ele, o healthcheck falhava com `executable file not found in $PATH` e o container ficava `unhealthy`.
+
+**Solução adotada:** o healthcheck foi implementado no próprio aplicativo. Ao ser executado com o argumento `--healthcheck`, o programa **não inicia a API**: ele faz uma requisição HTTP para `localhost:8080/health` e encerra com código `0` (saudável) ou `1` (falha).
+
+| Como é executado                          | O que acontece                                          |
+|-------------------------------------------|---------------------------------------------------------|
+| `dotnet DevOpsWebApi.dll`                 | sobe a API normalmente (`ENTRYPOINT` do Dockerfile)     |
+| `dotnet DevOpsWebApi.dll --healthcheck`   | consulta o `/health` e sai com código 0 ou 1            |
+
+**1. Program.cs** — bloco no topo do arquivo, antes do `WebApplication.CreateBuilder`:
+
+```csharp
+if (args.Contains("--healthcheck"))
+{
+    try
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        var response = await client.GetAsync("http://localhost:8080/health");
+        Environment.Exit(response.IsSuccessStatusCode ? 0 : 1);
+    }
+    catch
+    {
+        Environment.Exit(1);
+    }
+}
 ```
 
-Com isso, os containers passam de `starting` para `healthy` em poucos segundos (confira com `docker ps`).
+O bloco precisa vir **antes** de criar o servidor. Se viesse depois, o processo do healthcheck tentaria subir outra API na porta 8080, que já está em uso.
+
+**2. compose.yaml** — o `healthcheck` fica no mesmo nível de `image`, `ports` e `environment`, em cada serviço:
+
+```yaml
+services:
+
+  staging:
+    image: devops-webapi:1.1.0
+    container_name: devops-api-staging
+    ports:
+      - "8081:8080"
+    environment:
+      APP_ENVIRONMENT: staging
+      APP_VERSION: "1.1.0"
+    healthcheck:
+      test: ["CMD", "dotnet", "DevOpsWebApi.dll", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  production:
+    image: devops-webapi:1.1.0
+    container_name: devops-api-prod
+    ports:
+      - "8082:8080"
+    environment:
+      APP_ENVIRONMENT: production
+      APP_VERSION: "1.1.0"
+    healthcheck:
+      test: ["CMD", "dotnet", "DevOpsWebApi.dll", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+```
+
+| Campo          | Função                                                          |
+|----------------|-----------------------------------------------------------------|
+| `interval`     | de quanto em quanto tempo o teste roda                          |
+| `timeout`      | tempo máximo para o teste responder                             |
+| `retries`      | falhas seguidas até marcar o container como `unhealthy`         |
+| `start_period` | tempo de carência para a API iniciar antes de contar falhas     |
+
+**3. Dockerfile** — não precisa de nenhuma ferramenta extra, então permanece sem instalar o curl.
+
+**Resultado:** após reconstruir a imagem (`docker build -t devops-webapi:1.1.0 .`) e subir com `docker compose up -d`, os dois containers passam para `healthy`:
+
+```bash
+docker ps
+```
+
+Teste manual do healthcheck (deve imprimir `0`):
+
+```powershell
+docker exec devops-api-staging dotnet DevOpsWebApi.dll --healthcheck
+echo $LASTEXITCODE
+```
+
+**Alternativa considerada:** instalar o `curl` no estágio `runtime` do Dockerfile. É mais simples, mas adiciona uma ferramenta à imagem final. O problema é conhecido e as mesmas duas alternativas aparecem em projetos reais, como na [issue #469 do Lumenqraph](https://github.com/Lumen-Scribe/Lumenqraph/issues/469).
