@@ -1,366 +1,171 @@
-# Laboratório Docker — Integração DevOps (Unidade 3)
+# 🐳 Laboratório Docker
 
-**Centro Universitário de Brasília – CEUB**
-Faculdade de Ciência da Computação
-Disciplina: Integração DevOps
-Professor: Daniel Linhares Lim Apo
-Aluna: Grazielle Santana (RA 22510450)
+Laboratório da disciplina **Integração DevOps**. A atividade empacota uma Web API em **ASP.NET Core (.NET 10)** como uma **imagem Docker versionada** e percorre o ciclo completo de entrega:
 
-Repositório (fork): https://github.com/graziessantos/CSharp-Unit-Testing-Tutorial
+```
+Código → Imagem → Container → Staging → Validação → Production → Falha → Rollback
+```
+
+A API expõe três endpoints e lê sua configuração de variáveis de ambiente:
+
+| Endpoint   | Retorna                                        |
+|------------|------------------------------------------------|
+| `/`        | nome da aplicação, versão e ambiente           |
+| `/health`  | status de saúde, versão, ambiente e horário    |
+| `/version` | versão, ambiente e mensagem (a partir da 1.1.0)|
+
+| Variável          | Função                                | Valor padrão  |
+|-------------------|---------------------------------------|---------------|
+| `APP_ENVIRONMENT` | ambiente em que a API está executando | `development` |
+| `APP_VERSION`     | versão implantada                     | `local`       |
+
+> 📎 Os prints de cada etapa estão no **documento de evidências** entregue junto com este repositório.
 
 ---
 
-## Sobre o projeto
+## 🔨 Construção
 
-API simples em **ASP.NET Core (.NET 10)** empacotada em uma imagem Docker e executada em containers para diferentes ambientes (staging e production). O laboratório cobre:
-
-- build de imagem com **multi-stage build**;
-- execução de containers com **port mapping** e **variáveis de ambiente**;
-- **versionamento** de imagens por tag (`1.0.0`, `1.1.0`, `1.2.0`);
-- promoção de versão de **staging** para **production**;
-- **health check** e quality gate manual;
-- **falha controlada** e **rollback**;
-- orquestração local com **Docker Compose**, incluindo `healthcheck`.
-
-Fluxo geral:
-
-```
-Código C# → Dockerfile → docker build → Imagem versionada
-          → Container (staging) → Validação → Production → Rollback
-```
-
-## Endpoints da API
-
-| Endpoint   | Descrição                                              |
-|------------|--------------------------------------------------------|
-| `/`        | Retorna nome da aplicação, versão e ambiente           |
-| `/health`  | Retorna `status`, `version`, `environment`, `timestamp`|
-| `/version` | Adicionado na versão 1.1.0                             |
-
-A versão e o ambiente vêm das variáveis `APP_VERSION` e `APP_ENVIRONMENT`.
-
-## Pré-requisitos
-
-```bash
-docker --version
-dotnet --version
-git --version
-```
-
-Ambiente utilizado: Docker 24.0.6, .NET SDK 10.0.401, Git 2.53.0 (Windows).
-
-Teste do Docker (com o Docker Desktop aberto):
-
-```bash
-docker run --rm hello-world
-```
-
-## Executando localmente (sem Docker)
-
-```bash
-dotnet new webapi -n DevOpsWebApi
-cd DevOpsWebApi
-dotnet run
-```
-
-Neste laboratório a aplicação subiu em `http://localhost:5299`. Teste `/` e `/health`.
-
-## Estrutura de arquivos
-
-```
-DevOpsWebApi/
-├── DevOpsWebApi.csproj
-├── Program.cs
-├── Dockerfile
-├── .dockerignore
-└── compose.yaml
-```
-
-## Dockerfile
-
-```dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-
-WORKDIR /src
-
-COPY DevOpsWebApi.csproj .
-RUN dotnet restore
-
-COPY . .
-
-RUN dotnet publish \
-    -c Release \
-    -o /app/publish \
-    --no-restore
-
-
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=build /app/publish .
-
-ENV ASPNETCORE_URLS=http://+:8080
-
-EXPOSE 8080
-
-ENTRYPOINT ["dotnet", "DevOpsWebApi.dll"]
-```
-
-- **Stage `build`:** usa a imagem com o .NET SDK para restaurar e publicar o projeto.
-- **Stage `runtime`:** usa a imagem `aspnet`, menor, e copia somente o resultado publicado.
-- O `RUN` que instala o `curl` está no stage **`runtime`**, pois é essa a imagem que roda o container e onde o healthcheck procura o executável. Isso foi acrescentado no desafio de healthcheck (ver seção abaixo).
-
-## .dockerignore
-
-```
-bin/
-obj/
-.git/
-.github/
-.vscode/
-*.user
-*.suo
-```
-
-## Construção das imagens
+Constrói a imagem `devops-webapi` com a tag `1.0.0`, a partir do `Dockerfile` da pasta atual.
 
 ```bash
 docker build -t devops-webapi:1.0.0 .
-docker images
 ```
 
-## Execução
+- `-t devops-webapi:1.0.0` define o nome e a tag (versão) da imagem.
+- O `.` indica que o contexto do build é a pasta atual.
+- O Dockerfile usa **multi-stage build**: um estágio com o SDK compila e publica a aplicação, e o estágio final (somente runtime ASP.NET) recebe apenas o resultado publicado. Isso deixa a imagem menor.
+- O arquivo `.dockerignore` evita enviar `bin/`, `obj/`, `.git/` e outros arquivos desnecessários ao build.
 
-Primeiro container (versão 1.0.0):
+Para conferir: `docker images`
+
+---
+
+## ▶️ Execução
+
+Cria e executa o primeiro container a partir da imagem.
 
 ```bash
 docker run -d --name devops-api -p 8080:8080 devops-webapi:1.0.0
 ```
 
-| Opção                  | Função                                         |
-|------------------------|------------------------------------------------|
-| `-d`                   | executa em background                          |
-| `--name devops-api`    | nome do container                              |
-| `-p 8080:8080`         | mapeia `porta-host:porta-container`            |
-| `devops-webapi:1.0.0`  | imagem utilizada                               |
+| Opção                  | Significado                                              |
+|------------------------|----------------------------------------------------------|
+| `-d`                   | executa em segundo plano                                 |
+| `--name devops-api`    | dá um nome ao container                                  |
+| `-p 8080:8080`         | mapeia `porta-do-host:porta-do-container`                |
 
-Inspeção e ciclo de vida:
+Acesse `http://localhost:8080/` para ver a resposta da API. Comandos úteis para inspecionar: `docker ps`, `docker logs devops-api` e `docker inspect devops-api`.
 
-```bash
-docker ps
-docker logs devops-api
-docker logs -f devops-api
-docker inspect devops-api
-docker stop devops-api
-docker ps -a
-docker rm devops-api
-docker images          # a imagem continua disponível
-```
+---
 
-## Staging
+## 🧪 Staging
+
+Cria o ambiente de **staging** com a mesma imagem, mudando só a configuração e a porta externa (`8081`).
 
 ```bash
-docker run -d --name devops-api-staging -p 8081:8080 \
-  -e APP_ENVIRONMENT=staging -e APP_VERSION=1.0.0 devops-webapi:1.0.0
+docker run -d --name devops-api-staging -p 8081:8080 -e APP_ENVIRONMENT=staging -e APP_VERSION=1.0.0 devops-webapi:1.0.0
 ```
 
-Acesso: http://localhost:8081/
+- `-e` passa variáveis de ambiente para o container.
+- Resultado esperado em `http://localhost:8081/`: `"environment": "staging"` e `"version": "1.0.0"`.
 
-## Production
+---
+
+## 🚀 Production
+
+Cria o ambiente de **production** a partir da **mesma imagem**, na porta `8082`.
 
 ```bash
-docker run -d --name devops-api-prod -p 8082:8080 \
-  -e APP_ENVIRONMENT=production -e APP_VERSION=1.0.0 devops-webapi:1.0.0
+docker run -d --name devops-api-prod -p 8082:8080 -e APP_ENVIRONMENT=production -e APP_VERSION=1.0.0 devops-webapi:1.0.0
 ```
 
-Acesso: http://localhost:8082/
+| Propriedade     | Staging              | Production           |
+|-----------------|----------------------|----------------------|
+| Imagem          | `devops-webapi:1.0.0`| `devops-webapi:1.0.0`|
+| Porta externa   | 8081                 | 8082                 |
+| APP_ENVIRONMENT | staging              | production           |
 
-Mesma imagem, ambientes diferentes (*build once, deploy many*):
+Conceito aplicado: **build once, deploy many**. A imagem é construída uma vez e reutilizada em vários ambientes.
 
-| Propriedade      | Staging              | Production           |
-|------------------|----------------------|----------------------|
-| Imagem           | `devops-webapi:1.0.0`| `devops-webapi:1.0.0`|
-| Porta externa    | 8081                 | 8082                 |
-| APP_ENVIRONMENT  | staging              | production           |
-| APP_VERSION      | 1.0.0                | 1.0.0                |
+---
 
-## Health Check
+## ❤️ Health Check
 
-Linux/macOS:
+Valida se a aplicação está saudável em cada ambiente.
 
 ```bash
-curl -f http://localhost:8081/health
-```
-
-Windows (PowerShell):
-
-```powershell
 curl.exe -f http://localhost:8081/health
+curl.exe -f http://localhost:8082/health
 ```
 
-Resposta esperada (HTTP 200):
+- O `-f` faz o curl **falhar** (código de saída diferente de zero) quando a resposta HTTP é de erro, o que o torna um *quality gate*: se falhar, a release **não deve ser promovida**.
+- Resultado esperado: `{"status":"healthy","version":"...","environment":"..."}`.
+- No Linux/macOS, use `curl` no lugar de `curl.exe`.
 
-```json
-{"status":"healthy","version":"1.1.0","environment":"staging","timestamp":"..."}
-```
+---
 
-O parâmetro `-f` faz o curl falhar em respostas HTTP de erro (como 500), o que permite usá-lo como quality gate.
+## 🏷️ Nova versão
 
-## Nova versão (1.1.0)
-
-Adicionado ao `Program.cs`, antes de `app.Run();`:
-
-```csharp
-app.MapGet("/version", () => new
-{
-    version,
-    environment,
-    message = "Nova funcionalidade da versão 1.1"
-});
-```
-
-Build e deploy **primeiro em staging**:
+Após adicionar o endpoint `/version` ao `Program.cs`, gera-se uma nova imagem com a tag `1.1.0`. A `1.0.0` continua disponível.
 
 ```bash
 docker build -t devops-webapi:1.1.0 .
-
-docker rm -f devops-api-staging
-docker run -d --name devops-api-staging -p 8081:8080 \
-  -e APP_ENVIRONMENT=staging -e APP_VERSION=1.1.0 devops-webapi:1.1.0
-
-curl.exe -f http://localhost:8081/health
 ```
 
-Após a validação, promoção para production:
+Fluxo de implantação seguido:
+
+1. **Staging primeiro:** recria-se o container de staging com a `1.1.0` e roda-se o health check.
+2. **Promoção:** com a validação aprovada, recria-se o container de production com a `1.1.0`.
 
 ```bash
-docker rm -f devops-api-prod
-docker run -d --name devops-api-prod -p 8082:8080 \
-  -e APP_ENVIRONMENT=production -e APP_VERSION=1.1.0 devops-webapi:1.1.0
-
-curl.exe -f http://localhost:8082/health
+docker rm -f devops-api-staging
+docker run -d --name devops-api-staging -p 8081:8080 -e APP_ENVIRONMENT=staging -e APP_VERSION=1.1.0 devops-webapi:1.1.0
 ```
 
-## Falha controlada (1.2.0)
+---
 
-Para fins didáticos, o endpoint `/health` foi alterado para retornar erro 500:
+## 💥 Falha controlada
 
-```csharp
-app.MapGet("/health", () =>
-    Results.StatusCode(
-        StatusCodes.Status500InternalServerError
-    )
-);
-```
+A versão `1.2.0` foi criada **de propósito** com o endpoint `/health` retornando erro 500, para simular uma release defeituosa (uso exclusivamente didático).
 
 ```bash
 docker build -t devops-webapi:1.2.0 .
-
-docker rm -f devops-api-staging
-docker run -d --name devops-api-staging -p 8081:8080 \
-  -e APP_ENVIRONMENT=staging -e APP_VERSION=1.2.0 devops-webapi:1.2.0
-
-curl.exe -f http://localhost:8081/health
-# curl: (22) The requested URL returned error: 500
 ```
 
-O health check falhou em staging, então a versão **não deveria ser promovida**. Para demonstrar o rollback, a versão foi implantada em production (simulação de incidente):
+Ao implantar a `1.2.0` em staging, o health check falha:
+
+```
+curl: (22) The requested URL returned error: 500
+```
+
+Em um fluxo real, essa falha **bloquearia a promoção** para production. Para demonstrar o rollback, a `1.2.0` foi colocada em production mesmo assim, simulando um incidente.
+
+---
+
+## ⏪ Rollback
+
+Volta o ambiente de production para a última versão conhecida como funcional (`1.1.0`).
 
 ```bash
 docker rm -f devops-api-prod
-docker run -d --name devops-api-prod -p 8082:8080 \
-  -e APP_ENVIRONMENT=production -e APP_VERSION=1.2.0 devops-webapi:1.2.0
-
-curl.exe -f http://localhost:8082/health
-# curl: (22) The requested URL returned error: 500
+docker run -d --name devops-api-prod -p 8082:8080 -e APP_ENVIRONMENT=production -e APP_VERSION=1.1.0 devops-webapi:1.1.0
 ```
 
-## Rollback
+Depois, `curl.exe -f http://localhost:8082/health` volta a responder `healthy`. O rollback só é possível porque as imagens são **versionadas** e a `1.1.0` continua disponível.
 
-Retorno à última versão estável (1.1.0):
+---
+
+## 🧩 Docker Compose
+
+Declara staging e production em um arquivo `compose.yaml`, no lugar de vários `docker run`. Ambos os serviços usam a imagem `devops-webapi:1.1.0` e têm um `healthcheck` que chama `/health`.
 
 ```bash
-docker rm -f devops-api-prod
-docker run -d --name devops-api-prod -p 8082:8080 \
-  -e APP_ENVIRONMENT=production -e APP_VERSION=1.1.0 devops-webapi:1.1.0
-
-curl.exe -f http://localhost:8082/health
+docker compose up -d     # sobe os ambientes em segundo plano
+docker compose ps        # lista os serviços e o estado de saúde
+docker compose down      # encerra e remove containers e rede
 ```
 
-O rollback só foi possível porque a imagem `1.1.0` continuou disponível e versionada por tag.
-
-## Docker Compose
-
-Antes de subir pelo Compose, os containers manuais foram removidos:
-
-```bash
-docker rm -f devops-api-staging devops-api-prod
-```
-
-`compose.yaml` (já com healthcheck):
-
-```yaml
-services:
-
-  staging:
-    image: devops-webapi:1.1.0
-    container_name: devops-api-staging
-    ports:
-      - "8081:8080"
-    environment:
-      APP_ENVIRONMENT: staging
-      APP_VERSION: "1.1.0"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  production:
-    image: devops-webapi:1.1.0
-    container_name: devops-api-prod
-    ports:
-      - "8082:8080"
-    environment:
-      APP_ENVIRONMENT: production
-      APP_VERSION: "1.1.0"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-```
-
-Comandos:
-
-```bash
-docker compose up -d
-docker compose ps
-docker compose logs
-docker compose logs -f
-docker compose config
-docker compose down
-```
-
-## Desafio avançado — Healthcheck no Compose
-
-O enunciado alerta que o healthcheck com `curl` exige que o executável exista dentro da imagem.
-
-**Problema encontrado:** a imagem `mcr.microsoft.com/dotnet/aspnet` não traz o `curl`. Com o healthcheck configurado no Compose, os containers ficaram `unhealthy`. O resultado de `docker inspect` mostrou a causa:
-
-```
-OCI runtime exec failed: exec failed: unable to start container process:
-exec: "curl": executable file not found in $PATH
-```
-
-Ou seja, o Docker nem chegou a testar a API: o comando de teste não existia na imagem.
-
-**Solução adotada:** instalar o `curl` no stage `runtime` do Dockerfile, mantendo apenas as dependências obrigatórias:
+**Atenção ao healthcheck:** ele usa o `curl`, que **não vem** na imagem base `aspnet`. Por isso o `Dockerfile` instala o curl no estágio `runtime`:
 
 ```dockerfile
 RUN apt-get update \
@@ -368,44 +173,4 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-| Trecho                          | Função                                                             |
-|---------------------------------|--------------------------------------------------------------------|
-| `apt-get update`                | baixa a lista de pacotes disponíveis                               |
-| `apt-get install -y curl`       | instala o curl sem pedir confirmação                               |
-| `--no-install-recommends`       | evita pacotes opcionais, deixando a imagem menor                   |
-| `rm -rf /var/lib/apt/lists/*`   | remove a lista de pacotes para reduzir o tamanho final da imagem   |
-
-A instalação fica no mesmo `RUN` para que a limpeza realmente reduza o tamanho da camada.
-
-Depois de reconstruir a imagem `1.1.0` e recriar os containers, o `docker ps` passou a mostrar os dois ambientes como `(healthy)`. A imagem `1.1.0` ficou com 238 MB, contra 231 MB das imagens sem o curl.
-
-**Alternativas consideradas** (sem alterar o Dockerfile): healthcheck com `bash` via `/dev/tcp`, ou implementar um argumento `--healthcheck` no próprio app .NET.
-
-Comandos úteis para diagnóstico:
-
-```bash
-docker ps
-docker inspect --format "{{json .State.Health}}" devops-api-staging
-docker exec devops-api-staging curl -f http://localhost:8080/health
-```
-
-## Limpeza do laboratório
-
-```bash
-docker compose down
-docker ps -a
-docker images
-
-# opcional
-docker rmi devops-webapi:1.0.0
-docker rmi devops-webapi:1.1.0
-docker rmi devops-webapi:1.2.0
-```
-
-## Segurança
-
-As variáveis `APP_ENVIRONMENT` e `APP_VERSION` são apenas configuração. Credenciais reais (senhas, tokens, certificados) nunca devem ficar no Dockerfile, no código ou em arquivos versionados.
-
-## Evidências
-
-As evidências em captura de tela de cada etapa (imagens 1.0.0 e 1.1.0, containers de staging e production, health check bem-sucedido, versão 1.2.0 com falha, rollback para 1.1.0, Compose e healthcheck) estão no relatório de entrega da atividade.
+Com isso, os containers passam de `starting` para `healthy` em poucos segundos (confira com `docker ps`).
