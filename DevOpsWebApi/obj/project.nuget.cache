@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "sb4wzAza6Nw=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Cirno\\Downloads\\Estudos\\Faculdade\\Projetos\\WebAPI\\DevOpsWebApi\\DevOpsWebApi.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Cirno\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.12\\microsoft.aspnetcore.openapi.10.0.12.nupkg.sha512",
+    "C:\\Users\\Cirno\\.nuget\\packages\\microsoft.openapi\\2.12.0\\microsoft.openapi.2.12.0.nupkg.sha512"
+  ],
+  "logs": []
+}
